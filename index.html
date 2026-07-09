@@ -1,0 +1,834 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CF SNIPER // Codeforces Practice Assistant</title>
+
+<!-- Google Fonts: JetBrains Mono (data/UI) + Fira Code (display) -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=Fira+Code:wght@500;600;700&display=swap" rel="stylesheet">
+
+<!-- Chart.js CDN -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+
+<style>
+  /* ==========================================================
+     TOKENS
+     A single tactical/rangefinder theme: near-black gunmetal
+     background, phosphor-green primary signal, amber for
+     secondary readouts/warnings. No theme switching.
+     ========================================================== */
+  :root {
+    --bg: #090c0b;
+    --bg-2: #0d1210;
+    --text: #dff5e8;
+    --text-dim: #7f9a8c;
+    --accent-rgb: 57, 255, 136;     /* phosphor green */
+    --accent2-rgb: 255, 176, 32;    /* amber */
+    --panel: rgba(255, 255, 255, 0.028);
+    --panel-border: rgba(var(--accent-rgb), 0.22);
+    --line: rgba(255, 255, 255, 0.07);
+
+    /* Fixed CF-difficulty badge colors: constant regardless of
+       visual theme, they carry semantic meaning (problem tier). */
+    --grey-badge: #8a93a3;
+    --green-badge: #4ee08a;
+    --cyan-badge: #34d3f0;
+    --purple-badge: #c48bff;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    overflow-x: hidden;
+  }
+
+  ::selection { background: rgba(var(--accent-rgb), 0.3); }
+
+  /* ==========================================================
+     BACKGROUND: faint dot grid + slow radar sweep
+     ========================================================== */
+  #scene {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    display: block;
+  }
+
+  .vignette {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background: radial-gradient(ellipse at 50% 0%, transparent 0%, transparent 40%, var(--bg) 92%);
+  }
+
+  .page {
+    position: relative;
+    z-index: 1;
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 56px 20px 70px;
+  }
+
+  /* ==========================================================
+     HEADER
+     ========================================================== */
+  header {
+    text-align: center;
+    margin-bottom: 44px;
+  }
+
+  .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.7rem;
+    letter-spacing: 3px;
+    color: rgb(var(--accent2-rgb));
+    text-transform: uppercase;
+    margin-bottom: 14px;
+  }
+
+  .eyebrow::before, .eyebrow::after {
+    content: '';
+    width: 22px;
+    height: 1px;
+    background: rgba(var(--accent2-rgb), 0.5);
+  }
+
+  .wordmark {
+    font-family: 'Fira Code', monospace;
+    font-size: clamp(2.2rem, 7vw, 4rem);
+    font-weight: 700;
+    letter-spacing: 8px;
+    color: rgb(var(--accent-rgb));
+    text-shadow: 0 0 24px rgba(var(--accent-rgb), 0.35);
+    position: relative;
+    display: inline-block;
+    padding: 0 6px;
+  }
+
+  .wordmark .reticle {
+    color: rgb(var(--accent2-rgb));
+  }
+
+  .subtitle {
+    margin-top: 12px;
+    color: var(--text-dim);
+    letter-spacing: 2px;
+    font-size: 0.85rem;
+  }
+
+  /* ==========================================================
+     HUD PANEL — the signature element.
+     A panel with cut/bracketed corners, like a scope readout.
+     ========================================================== */
+  .hud-panel {
+    position: relative;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+  }
+
+  .hud-panel::before, .hud-panel::after,
+  .hud-panel .br-tl, .hud-panel .br-tr, .hud-panel .br-bl, .hud-panel .br-br {
+    content: '';
+    position: absolute;
+    width: 14px;
+    height: 14px;
+    pointer-events: none;
+  }
+
+  .hud-panel::before { top: -1px; left: -1px; border-top: 2px solid rgb(var(--accent-rgb)); border-left: 2px solid rgb(var(--accent-rgb)); }
+  .hud-panel::after   { bottom: -1px; right: -1px; border-bottom: 2px solid rgb(var(--accent-rgb)); border-right: 2px solid rgb(var(--accent-rgb)); }
+  .hud-panel .br-tr   { top: -1px; right: -1px; border-top: 2px solid rgba(var(--accent-rgb), 0.45); border-right: 2px solid rgba(var(--accent-rgb), 0.45); }
+  .hud-panel .br-bl   { bottom: -1px; left: -1px; border-bottom: 2px solid rgba(var(--accent-rgb), 0.45); border-left: 2px solid rgba(var(--accent-rgb), 0.45); }
+
+  /* ==========================================================
+     SEARCH SECTION
+     ========================================================== */
+  .search-wrap {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 34px;
+  }
+
+  .search-box {
+    display: flex;
+    width: 100%;
+    max-width: 540px;
+    padding: 4px;
+  }
+
+  #handle-input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.95rem;
+    padding: 14px 16px;
+  }
+
+  #handle-input::placeholder {
+    color: var(--text-dim);
+  }
+
+  #analyze-btn {
+    background: rgb(var(--accent-rgb));
+    color: #04140b;
+    border: none;
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 700;
+    font-size: 0.85rem;
+    padding: 0 22px;
+    cursor: pointer;
+    letter-spacing: 1.5px;
+    border-radius: 2px;
+    transition: box-shadow 0.2s, transform 0.15s;
+    white-space: nowrap;
+  }
+
+  #analyze-btn:hover {
+    box-shadow: 0 0 22px rgba(var(--accent-rgb), 0.55);
+    transform: translateY(-1px);
+  }
+
+  #analyze-btn:active { transform: translateY(0); }
+
+  #analyze-btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+    transform: none;
+  }
+
+  .spinner {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border: 2px solid rgba(4, 20, 11, 0.35);
+    border-top-color: #04140b;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    vertical-align: middle;
+    margin-right: 6px;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ==========================================================
+     TOAST
+     ========================================================== */
+  #toast {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background: rgba(20, 6, 6, 0.95);
+    border: 1px solid #ff5f5f;
+    color: #ffb3b3;
+    padding: 13px 18px;
+    border-radius: 4px;
+    font-size: 0.82rem;
+    z-index: 100;
+    transform: translateX(140%);
+    transition: transform 0.35s ease;
+    max-width: 320px;
+  }
+
+  #toast.show { transform: translateX(0); }
+
+  /* ==========================================================
+     DASHBOARD
+     ========================================================== */
+  #dashboard {
+    opacity: 0;
+    transform: translateY(10px);
+    transition: opacity 0.6s ease, transform 0.6s ease;
+    pointer-events: none;
+  }
+
+  #dashboard.visible {
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
+  }
+
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+    margin-bottom: 26px;
+  }
+
+  .stat-card {
+    padding: 18px 14px;
+    text-align: left;
+  }
+
+  .stat-card .label {
+    font-size: 0.66rem;
+    letter-spacing: 1.8px;
+    color: var(--text-dim);
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .stat-card .label .dot {
+    width: 5px; height: 5px; border-radius: 50%;
+    background: rgb(var(--accent-rgb));
+    box-shadow: 0 0 6px rgb(var(--accent-rgb));
+  }
+
+  .stat-card .value {
+    font-family: 'Fira Code', monospace;
+    font-size: 1.7rem;
+    font-weight: 700;
+    color: rgb(var(--accent-rgb));
+    line-height: 1.1;
+  }
+
+  .stat-card .sub {
+    font-size: 0.72rem;
+    color: var(--text-dim);
+    margin-top: 5px;
+    letter-spacing: 0.5px;
+  }
+
+  .stat-card.amber .value { color: rgb(var(--accent2-rgb)); }
+  .stat-card.amber .label .dot { background: rgb(var(--accent2-rgb)); box-shadow: 0 0 6px rgb(var(--accent2-rgb)); }
+
+  /* ==========================================================
+     CHART SECTION
+     ========================================================== */
+  .chart-panel {
+    padding: 22px 20px 14px;
+    margin-bottom: 30px;
+  }
+
+  .chart-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .chart-head h3 {
+    margin: 0;
+    font-size: 0.78rem;
+    letter-spacing: 2.5px;
+    color: rgb(var(--accent-rgb));
+    text-transform: uppercase;
+    font-weight: 600;
+  }
+
+  .chart-head .meta {
+    font-size: 0.72rem;
+    color: var(--text-dim);
+    letter-spacing: 0.5px;
+  }
+
+  .chart-empty {
+    text-align: center;
+    padding: 30px 10px;
+    color: var(--text-dim);
+    font-size: 0.82rem;
+    letter-spacing: 0.5px;
+  }
+
+  /* ==========================================================
+     RECOMMENDATIONS
+     ========================================================== */
+  .rec-heading {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 0.78rem;
+    letter-spacing: 2.5px;
+    color: rgb(var(--accent-rgb));
+    text-transform: uppercase;
+    font-weight: 600;
+    margin-bottom: 16px;
+  }
+
+  .rec-heading::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--line);
+  }
+
+  .rec-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(215px, 1fr));
+    gap: 14px;
+  }
+
+  .rec-tile {
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    opacity: 0;
+    transform: translateY(16px);
+    animation: tile-in 0.45s ease forwards;
+    transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+  }
+
+  .rec-tile:hover {
+    box-shadow: 0 0 24px rgba(var(--accent-rgb), 0.18);
+    transform: translateY(-3px);
+  }
+
+  @keyframes tile-in { to { opacity: 1; transform: translateY(0); } }
+
+  .rec-tile .tile-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .rec-tile .name {
+    font-weight: 600;
+    color: var(--text);
+    font-size: 0.92rem;
+    line-height: 1.4;
+  }
+
+  .rec-tile .idx {
+    font-family: 'Fira Code', monospace;
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    letter-spacing: 1px;
+  }
+
+  .badge {
+    display: inline-block;
+    align-self: flex-start;
+    padding: 3px 10px;
+    border-radius: 3px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    font-family: 'Fira Code', monospace;
+  }
+
+  /* Fixed semantic colors for CF rating tiers - do NOT theme these */
+  .badge.grey  { background: rgba(138, 147, 163, 0.14); color: var(--grey-badge); border: 1px solid var(--grey-badge); }
+  .badge.green { background: rgba(78, 224, 138, 0.12); color: var(--green-badge); border: 1px solid var(--green-badge); }
+  .badge.cyan  { background: rgba(52, 211, 240, 0.12); color: var(--cyan-badge); border: 1px solid var(--cyan-badge); }
+  .badge.purple{ background: rgba(196, 139, 255, 0.14); color: var(--purple-badge); border: 1px solid var(--purple-badge); }
+
+  .solve-btn {
+    margin-top: auto;
+    background: transparent;
+    border: 1px solid rgba(var(--accent-rgb), 0.5);
+    color: rgb(var(--accent-rgb));
+    padding: 9px 14px;
+    border-radius: 3px;
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 600;
+    font-size: 0.78rem;
+    cursor: pointer;
+    letter-spacing: 1px;
+    transition: background 0.2s, color 0.2s, box-shadow 0.2s;
+  }
+
+  .solve-btn:hover {
+    background: rgb(var(--accent-rgb));
+    color: #04140b;
+    box-shadow: 0 0 16px rgba(var(--accent-rgb), 0.5);
+  }
+
+  /* ==========================================================
+     FOOTER
+     ========================================================== */
+  footer {
+    margin-top: 60px;
+    text-align: center;
+    padding-top: 20px;
+    position: relative;
+    color: var(--text-dim);
+    font-size: 0.75rem;
+    letter-spacing: 1px;
+  }
+
+  footer::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 100px;
+    height: 1px;
+    background: rgba(var(--accent-rgb), 0.4);
+  }
+
+  /* ==========================================================
+     RESPONSIVE
+     ========================================================== */
+  @media (max-width: 700px) {
+    .stats-row { grid-template-columns: repeat(2, 1fr); }
+    .search-box { flex-direction: column; }
+    #analyze-btn { padding: 12px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Ambient background: dot grid + slow radar sweep -->
+<canvas id="scene"></canvas>
+<div class="vignette"></div>
+
+<div class="page">
+
+  <!-- HEADER -->
+  <header>
+    <div class="eyebrow">Target acquisition system</div>
+    <div class="wordmark">CF<span class="reticle">&nbsp;⌖&nbsp;</span>SNIPER</div>
+    <div class="subtitle">Scan a handle. Lock five targets 100&ndash;400 above your rating.</div>
+  </header>
+
+  <!-- SEARCH -->
+  <div class="search-wrap">
+    <div class="search-box hud-panel">
+      <span class="br-tr"></span><span class="br-bl"></span>
+      <input type="text" id="handle-input" placeholder="ENTER CF HANDLE (e.g. tourist)" autocomplete="off" />
+      <button id="analyze-btn">⌖ ANALYZE</button>
+    </div>
+  </div>
+
+  <!-- DASHBOARD (hidden until first successful fetch) -->
+  <div id="dashboard">
+
+    <div class="stats-row">
+      <div class="stat-card hud-panel">
+        <span class="br-tr"></span><span class="br-bl"></span>
+        <div class="label"><span class="dot"></span>Current Rating</div>
+        <div class="value" id="stat-rating">0</div>
+        <div class="sub" id="stat-rating-delta">&mdash;</div>
+      </div>
+      <div class="stat-card amber hud-panel">
+        <span class="br-tr"></span><span class="br-bl"></span>
+        <div class="label"><span class="dot"></span>Peak Rating</div>
+        <div class="value" id="stat-peak">0</div>
+        <div class="sub">Highest ever achieved</div>
+      </div>
+      <div class="stat-card amber hud-panel">
+        <span class="br-tr"></span><span class="br-bl"></span>
+        <div class="label"><span class="dot"></span>Best Rank</div>
+        <div class="value" id="stat-best-rank">&mdash;</div>
+        <div class="sub">In a single contest</div>
+      </div>
+      <div class="stat-card hud-panel">
+        <span class="br-tr"></span><span class="br-bl"></span>
+        <div class="label"><span class="dot"></span>Solved</div>
+        <div class="value" id="stat-solved">0</div>
+        <div class="sub" id="stat-rank">&mdash;</div>
+      </div>
+    </div>
+
+    <div class="chart-panel hud-panel">
+      <span class="br-tr"></span><span class="br-bl"></span>
+      <div class="chart-head">
+        <h3>Rating Trajectory</h3>
+        <span class="meta" id="chart-meta"></span>
+      </div>
+      <div id="chart-container">
+        <canvas id="ratingChart" height="90"></canvas>
+      </div>
+    </div>
+
+    <div class="rec-heading">Targets Acquired</div>
+    <div class="rec-grid" id="rec-grid"></div>
+
+  </div>
+
+</div>
+
+<div id="toast"></div>
+
+<footer>
+  Built with Python, Flask &amp; ⌖ by Ayush
+</footer>
+
+<script>
+  /* ============================================================
+     BACKGROUND SCENE — faint dot grid + a slow radar sweep line.
+     Single ambient mode, deliberately subtle so it never competes
+     with the data on screen.
+     ============================================================ */
+  (function scene() {
+    const canvas = document.getElementById('scene');
+    const ctx = canvas.getContext('2d');
+    let width, height, sweepAngle = 0;
+
+    function resize() {
+      width = canvas.width = window.innerWidth;
+      height = canvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    function draw() {
+      ctx.clearRect(0, 0, width, height);
+
+      // dot grid
+      const gap = 34;
+      ctx.fillStyle = 'rgba(57, 255, 136, 0.05)';
+      for (let x = gap / 2; x < width; x += gap) {
+        for (let y = gap / 2; y < height; y += gap) {
+          ctx.beginPath();
+          ctx.arc(x, y, 1, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      // slow radar sweep, anchored top-center, very faint
+      const cx = width * 0.5;
+      const cy = height * 0.02;
+      const radius = Math.max(width, height) * 0.9;
+      const grad = ctx.createConicGradient
+        ? ctx.createConicGradient(sweepAngle, cx, cy)
+        : null;
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.arc(cx, cy, radius, sweepAngle - 0.5, sweepAngle);
+      ctx.closePath();
+      const lg = ctx.createLinearGradient(cx, cy, cx + radius * Math.cos(sweepAngle), cy + radius * Math.sin(sweepAngle));
+      lg.addColorStop(0, 'rgba(57, 255, 136, 0.05)');
+      lg.addColorStop(1, 'rgba(57, 255, 136, 0)');
+      ctx.fillStyle = lg;
+      ctx.fill();
+      ctx.restore();
+
+      sweepAngle += 0.0025;
+      if (sweepAngle > Math.PI * 4) sweepAngle = 0;
+
+      requestAnimationFrame(draw);
+    }
+    draw();
+  })();
+
+  /* ============================================================
+     TOAST NOTIFICATION HELPER
+     ============================================================ */
+  let toastTimer = null;
+  function showToast(message) {
+    const toast = document.getElementById('toast');
+    toast.textContent = message;
+    toast.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toast.classList.remove('show'), 4000);
+  }
+
+  /* ============================================================
+     RATING CHART — plots REAL contest history returned by the API
+     ============================================================ */
+  let chartInstance = null;
+
+  function formatTimestamp(ts) {
+    const d = new Date(ts * 1000);
+    return d.toLocaleDateString(undefined, { month: 'short', year: '2-digit' });
+  }
+
+  function renderChart(ratingHistory, currentRating) {
+    const container = document.getElementById('chart-container');
+    const metaEl = document.getElementById('chart-meta');
+
+    if (!ratingHistory || ratingHistory.length === 0) {
+      metaEl.textContent = 'No rated contests yet';
+      container.innerHTML = `<div class="chart-empty">⌖ No contest history on record &mdash; unrated handle.</div>`;
+      if (chartInstance) { chartInstance.destroy(); chartInstance = null; }
+      return;
+    }
+
+    // Ensure the canvas exists (it may have been replaced by the empty state)
+    if (!document.getElementById('ratingChart')) {
+      container.innerHTML = `<canvas id="ratingChart" height="90"></canvas>`;
+    }
+
+    metaEl.textContent = `${ratingHistory.length} rated contest${ratingHistory.length === 1 ? '' : 's'}`;
+
+    const labels = ratingHistory.map(pt => formatTimestamp(pt.timestamp));
+    const points = ratingHistory.map(pt => pt.rating);
+    const contestNames = ratingHistory.map(pt => pt.contestName);
+    const ranks = ratingHistory.map(pt => pt.rank);
+
+    const ctx = document.getElementById('ratingChart').getContext('2d');
+    const accent = 'rgb(57, 255, 136)';
+    const accent2 = 'rgb(255, 176, 32)';
+
+    const fillGrad = ctx.createLinearGradient(0, 0, 0, 260);
+    fillGrad.addColorStop(0, 'rgba(57, 255, 136, 0.22)');
+    fillGrad.addColorStop(1, 'rgba(57, 255, 136, 0)');
+
+    if (chartInstance) chartInstance.destroy();
+
+    chartInstance = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [{
+          label: 'Rating',
+          data: points,
+          borderColor: accent,
+          backgroundColor: fillGrad,
+          pointBackgroundColor: accent2,
+          pointBorderColor: '#04140b',
+          pointBorderWidth: 1.5,
+          pointRadius: points.length > 40 ? 0 : 3,
+          pointHoverRadius: 6,
+          borderWidth: 2,
+          tension: 0.25,
+          fill: true,
+        }]
+      },
+      options: {
+        responsive: true,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: 'rgba(9, 12, 11, 0.95)',
+            borderColor: accent,
+            borderWidth: 1,
+            titleColor: accent2,
+            bodyColor: '#dff5e8',
+            padding: 10,
+            titleFont: { family: 'JetBrains Mono', size: 11 },
+            bodyFont: { family: 'JetBrains Mono', size: 11 },
+            callbacks: {
+              title: (items) => contestNames[items[0].dataIndex],
+              label: (item) => {
+                const r = ranks[item.dataIndex];
+                return [`Rating: ${item.formattedValue}`, r ? `Rank: #${r}` : null].filter(Boolean);
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            ticks: { color: '#7f9a8c', font: { family: 'JetBrains Mono', size: 10 }, maxTicksLimit: 8 },
+            grid: { color: 'rgba(255,255,255,0.05)' }
+          },
+          y: {
+            ticks: { color: '#7f9a8c', font: { family: 'JetBrains Mono', size: 10 } },
+            grid: { color: 'rgba(255,255,255,0.05)' }
+          }
+        }
+      }
+    });
+  }
+
+  /* ============================================================
+     BADGE COLOR HELPER
+     ============================================================ */
+  function badgeClass(rating) {
+    if (rating < 1200) return 'grey';
+    if (rating < 1600) return 'green';
+    if (rating < 1900) return 'cyan';
+    return 'purple';
+  }
+
+  /* ============================================================
+     RENDER RECOMMENDATIONS
+     ============================================================ */
+  function renderRecommendations(recs) {
+    const grid = document.getElementById('rec-grid');
+    grid.innerHTML = '';
+
+    recs.forEach((rec, i) => {
+      const tile = document.createElement('div');
+      tile.className = 'rec-tile hud-panel';
+      tile.style.animationDelay = `${i * 90}ms`;
+
+      tile.innerHTML = `
+        <span class="br-tr"></span><span class="br-bl"></span>
+        <div class="tile-top">
+          <div class="name">${rec.name}</div>
+          <div class="idx">${rec.contestId ?? ''}${rec.index ?? ''}</div>
+        </div>
+        <span class="badge ${badgeClass(rec.rating)}">${rec.rating}</span>
+        <button class="solve-btn" data-link="${rec.link}">▶ Solve</button>
+      `;
+
+      tile.querySelector('.solve-btn').addEventListener('click', (e) => {
+        window.open(e.currentTarget.dataset.link, '_blank');
+      });
+
+      grid.appendChild(tile);
+    });
+  }
+
+  /* ============================================================
+     MAIN ANALYZE FLOW
+     ============================================================ */
+  const analyzeBtn = document.getElementById('analyze-btn');
+  const handleInput = document.getElementById('handle-input');
+  const dashboard = document.getElementById('dashboard');
+
+  async function analyze() {
+    const username = handleInput.value.trim();
+    if (!username) {
+      showToast('Please enter a Codeforces handle.');
+      return;
+    }
+
+    const originalLabel = analyzeBtn.innerHTML;
+    analyzeBtn.disabled = true;
+    analyzeBtn.innerHTML = '<span class="spinner"></span> Scanning...';
+
+    try {
+      const res = await fetch(`/api/analyze/${encodeURIComponent(username)}`);
+      const data = await res.json();
+
+      if (!res.ok || data.error) {
+        showToast(data.error || 'Something went wrong.');
+        return;
+      }
+
+      document.getElementById('stat-rating').textContent = data.rating;
+      document.getElementById('stat-rating-delta').textContent =
+        data.rating > 0 ? data.rank : 'Unrated';
+      document.getElementById('stat-peak').textContent = data.peak_rating;
+      document.getElementById('stat-best-rank').textContent =
+        data.best_rank ? `#${data.best_rank}` : '—';
+      document.getElementById('stat-solved').textContent = data.solved_count;
+      document.getElementById('stat-rank').textContent = data.rank;
+
+      renderChart(data.rating_history, data.rating);
+      renderRecommendations(data.recommendations);
+
+      dashboard.classList.add('visible');
+    } catch (err) {
+      showToast('Network error. Is the server running?');
+    } finally {
+      analyzeBtn.disabled = false;
+      analyzeBtn.innerHTML = originalLabel;
+    }
+  }
+
+  analyzeBtn.addEventListener('click', analyze);
+  handleInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') analyze();
+  });
+</script>
+
+</body>
+</html>
